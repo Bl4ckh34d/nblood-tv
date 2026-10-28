@@ -1,0 +1,7 @@
+The root GPL-2.0 license applies to GPL-covered changes, not as a blanket relicense of every upstream component. NBlood/EDuke32 and the original Build engine have distinct terms. The Build license and libsmacker notice are preserved in `licenses/`; all other original notices remain in the fetched pinned source.
+
+"Build Engine & Tools" Copyright (c) 1993-1997 Ken Silverman. Ken Silverman's official web site: http://www.advsys.net/ken . See `licenses/BUILDLIC.TXT` for its license terms. Modified upstream files and this patch set retain the relevant author notices. The vendored libretro API header retains its own MIT notice.
+
+// "Build Engine & Tools" Copyright (c) 1993-1997 Ken Silverman
+// Ken Silverman's official web site: "http://www.advsys.net/ken"
+// See the included license file "licenses/BUILDLIC.TXT" for license info.

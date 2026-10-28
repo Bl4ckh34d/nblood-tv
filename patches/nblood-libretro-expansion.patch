@@ -1,0 +1,291 @@
+diff --git a/libretro/core.cpp b/libretro/core.cpp
+index b375287..28c7f53 100644
+--- a/libretro/core.cpp
++++ b/libretro/core.cpp
+@@ -164,8 +164,8 @@ void retro_poll_build_input()
+     wanted[1] |= pad(RETRO_DEVICE_ID_JOYPAD_START);
+     if (menu)
+     {
+-        wanted[28] |= pad(RETRO_DEVICE_ID_JOYPAD_A);
+-        wanted[1] |= pad(RETRO_DEVICE_ID_JOYPAD_B);
++        wanted[28] |= pad(RETRO_DEVICE_ID_JOYPAD_B);
++        wanted[1] |= pad(RETRO_DEVICE_ID_JOYPAD_A);
+         wanted[200] |= pad(RETRO_DEVICE_ID_JOYPAD_UP);
+         wanted[208] |= pad(RETRO_DEVICE_ID_JOYPAD_DOWN);
+         wanted[203] |= pad(RETRO_DEVICE_ID_JOYPAD_LEFT);
+@@ -174,8 +174,9 @@ void retro_poll_build_input()
+     else
+     {
+         for (unsigned button=0; button<16; ++button) {
++            if (!pad(button)) continue;
+             unsigned scan=retro_game_pad_key(button);
+-            if (scan && scan!=255 && pad(button)) wanted[scan]=true;
++            if (scan && scan!=255) wanted[scan]=true;
+         }
+ #if defined(LR_GAME_TEKWAR) || defined(LR_GAME_WITCHAVEN) || defined(LR_GAME_KENBUILD)
+         // These older ports read movement keys instead of ControlInfo axes.
+@@ -270,13 +271,16 @@ RETRO_API void retro_set_environment(retro_environment_t cb)
+     static const retro_controller_info ports[] = {{devices,2},{nullptr,0}};
+     cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, const_cast<retro_controller_info *>(ports));
+     static const retro_input_descriptor descriptors[] = {
+-        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_A,"Jump / Confirm"},
+-        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_B,"Crouch / Back"},
+-        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_X,"Use / Open"},
+-        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_Y,"Use inventory"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_B,"Jump / Confirm"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_A,"Crouch / Back"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_Y,"Use / Open"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_X,"Alternate fire"},
+         {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_L,"Previous weapon"},
+         {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_R,"Next weapon"},
+-        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_L2,"Alternate fire"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_L3,"Quicksave"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_R3,"Quickload"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_UP,"Use inventory"},
++        {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_DOWN,"Center aim"},
+         {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_R2,"Fire"},
+         {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_START,"Menu"},
+         {0,RETRO_DEVICE_JOYPAD,0,RETRO_DEVICE_ID_JOYPAD_SELECT,"Map"},
+@@ -306,7 +310,7 @@ RETRO_API void retro_init()
+ RETRO_API void retro_get_system_info(retro_system_info *info)
+ {
+     *info = {}; info->library_name = retro_game_name(); info->library_version = "497385d6-libretro";
+-    info->valid_extensions = ""; info->need_fullpath = false; info->block_extract = false;
++    info->valid_extensions = "ini"; info->need_fullpath = true; info->block_extract = false;
+ }
+ RETRO_API void retro_get_system_av_info(retro_system_av_info *info)
+ {
+@@ -315,13 +319,13 @@ RETRO_API void retro_get_system_av_info(retro_system_av_info *info)
+ }
+ RETRO_API bool retro_load_game(const retro_game_info *content)
+ {
+-    if (loaded || content) return false;
++    if (loaded || (content && (!content->path || !*content->path))) return false;
+     const char *system = nullptr;
+     if (!environment(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,&system) || !system || !*system) { retro_log_message("Set a libretro system directory containing this game's data."); return false; }
+     retro_pixel_format format = RETRO_PIXEL_FORMAT_XRGB8888;
+     if (!environment(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,&format)) return false;
+     std::error_code ec;
+-    dataDir = fs::absolute(system,ec);
++    dataDir = fs::absolute(content ? fs::path(content->path).parent_path() : fs::path(system),ec);
+     // Prefer a game-specific system subdirectory, then the system root.
+     for (const char *sub : {retro_game_directory(), ""})
+     {
+diff --git a/libretro/game_adapter.cpp b/libretro/game_adapter.cpp
+index 7cd5ba0..760f68d 100644
+--- a/libretro/game_adapter.cpp
++++ b/libretro/game_adapter.cpp
+@@ -16,6 +16,8 @@
+ #include "function.h"
+ #include "levels.h"
+ #include "gamemenu.h"
++#include "menu.h"
++#include "sound.h"
+ #include "player.h"
+ extern int MixRate, NumChannels, MusicDevice;
+ extern void ShutDown();
+@@ -181,11 +183,22 @@ unsigned retro_game_pad_key(unsigned button)
+     case RETRO_DEVICE_ID_JOYPAD_DOWN: name="Move_Backward"; break;
+     }
+ #if defined(LR_GAME_BLOOD)
+-    if (button==RETRO_DEVICE_ID_JOYPAD_Y) name="Inventory_Use";
++    // Xbox face labels differ from libretro's Nintendo button names.
++    if (button==RETRO_DEVICE_ID_JOYPAD_B) name="Jump";
++    if (button==RETRO_DEVICE_ID_JOYPAD_A) name="Crouch";
++    if (button==RETRO_DEVICE_ID_JOYPAD_Y) name="Open";
++    if (button==RETRO_DEVICE_ID_JOYPAD_X) name="Weapon_Special_Fire";
+     if (button==RETRO_DEVICE_ID_JOYPAD_R2) name="Weapon_Fire";
+-    if (button==RETRO_DEVICE_ID_JOYPAD_L2) name="Weapon_Special_Fire";
++    if (button==RETRO_DEVICE_ID_JOYPAD_L2) return 0; // Frontend fast-forward.
+     if (button==RETRO_DEVICE_ID_JOYPAD_SELECT) name="Map_Toggle";
+-    if (button==RETRO_DEVICE_ID_JOYPAD_R3) name="Aim_Center";
++    if (button==RETRO_DEVICE_ID_JOYPAD_UP) name="Inventory_Use";
++    if (button==RETRO_DEVICE_ID_JOYPAD_DOWN) name="Aim_Center";
++    if (button==RETRO_DEVICE_ID_JOYPAD_L3) {
++        gQuickSaveSlot=9;
++        std::strcpy(strRestoreGameStrings[9], "TV Quicksave");
++        return sc_F6;
++    }
++    if (button==RETRO_DEVICE_ID_JOYPAD_R3) { gQuickLoadSlot=9; return sc_F9; }
+ #elif defined(LR_GAME_WITCHAVEN)
+     if (button==RETRO_DEVICE_ID_JOYPAD_Y) name="Use_Potion";
+     if (button==RETRO_DEVICE_ID_JOYPAD_L2) name="Cast_Spell";
+@@ -228,6 +241,7 @@ void retro_game_update(const RetroGameSettings &s)
+ {
+ #if defined(LR_GAME_BLOOD)
+     gMouseAim=s.freeaim; gAutoAim=s.autoaim; gMouseAimingFlipped=0; gAimReticle=1;
++    CDAudioToggle=1; // The TV package includes the user's CD soundtrack as Ogg.
+ #elif defined(LR_GAME_DUKE3D) || defined(LR_GAME_RR)
+     ud.mouseaiming=0; ud.config.AutoAim=s.autoaim; ud.mouseflip=0; ud.crosshair=1;
+     extern int32_t g_myAimMode;
+diff --git a/libretro/tests/smoke.cpp b/libretro/tests/smoke.cpp
+index 098a8f5..0d960b4 100644
+--- a/libretro/tests/smoke.cpp
++++ b/libretro/tests/smoke.cpp
+@@ -92,7 +92,9 @@ static int16_t input(unsigned, unsigned device, unsigned index, unsigned id) {
+         return 0;
+     }
+     if (device == RETRO_DEVICE_JOYPAD) {
+-        if (!keyboard && id == RETRO_DEVICE_ID_JOYPAD_A && confirm) return 1;
++        if (stage == 7 && id == RETRO_DEVICE_ID_JOYPAD_L3 && stageFrame == 1) return 1;
++        if (stage == 8 && id == RETRO_DEVICE_ID_JOYPAD_R3 && stageFrame == 1) return 1;
++        if (!keyboard && id == RETRO_DEVICE_ID_JOYPAD_B && confirm) return 1;
+         if (stage == 4 && id == RETRO_DEVICE_ID_JOYPAD_R2 && stageFrame < 30) return 1;
+         return 0;
+     }
+@@ -160,7 +162,9 @@ int main(int argc, char **argv) {
+     for (auto it=variables.begin(); it!=variables.end();) {
+         if(it->first.rfind("nblood_",0)==0 && gameId!="nblood") { auto key=gameId+it->first.substr(6); auto value=it->second; it=variables.erase(it); variables[key]=value; } else ++it;
+     }
+-    check(retro_load_game(nullptr),"contentless load");
++    std::string contentPath=(fs::path(systemDir)/"BLOOD.INI").string();
++    retro_game_info content{contentPath.c_str(),nullptr,0,nullptr};
++    check(retro_load_game(&content),"playlist content load");
+     auto originalCwd = fs::current_path(); BloodTestState s{};
+     auto run = [&]() { ++frame; ++stageFrame; retro_run(); check(fs::current_path()==originalCwd,"core changed frontend working directory"); check(!shutdownRequested,"unexpected core shutdown"); snapshot(&s); };
+     auto boot = [&]() {
+@@ -197,6 +201,12 @@ int main(int argc, char **argv) {
+     check(s.x!=initial.x || s.y!=initial.y,"movement before loading save");
+     stage=6; stageFrame=0; for(int i=0;i<90;i++) run();
+     check(std::abs(s.x-initial.x)<512 && std::abs(s.y-initial.y)<512,"native load did not restore player position");
++    stage=7; stageFrame=0; for(int i=0;i<15;i++) run();
++    check(fs::is_regular_file(fs::path(saveDir)/"nblood/game0009.sav"),"controller quicksave missing");
++    initial=s; stage=1; stageFrame=0; for(int i=0;i<60;i++) run();
++    check(s.x!=initial.x || s.y!=initial.y,"movement before quickload");
++    stage=8; stageFrame=0; for(int i=0;i<15;i++) run();
++    check(std::abs(s.x-initial.x)<512 && std::abs(s.y-initial.y)<512,"controller quickload position");
+     }
+     variables[gameId+"_freeaim"]="disabled"; variables[gameId+"_autoaim"]="enabled"; variableUpdate=true;
+     for(int i=0;i<4;i++) run(); check(s.freeaim==0 && s.autoaim==1,"live core option updates");
+diff --git a/source/blood/src/config.cpp b/source/blood/src/config.cpp
+index a3df474..cac6f9b 100644
+--- a/source/blood/src/config.cpp
++++ b/source/blood/src/config.cpp
+@@ -39,7 +39,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include "tile.h"
+ #include "view.h"
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+ # include "android.h"
+ #endif
+ 
+@@ -249,7 +249,7 @@ void CONFIG_SetDefaults(void)
+ {
+     scripthandle = -1;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+     droidinput.forward_sens = 5.f;
+     droidinput.gameControlsAlpha = 0.5;
+     droidinput.hideStick = 0;
+@@ -291,7 +291,7 @@ void CONFIG_SetDefaults(void)
+ 
+ #if defined(_WIN32)
+     MixRate = 44100;
+-#elif defined __ANDROID__
++#elif defined(__ANDROID__) && !defined(LIBRETRO)
+     MixRate = droidinfo.audio_sample_rate;
+ #else
+     MixRate = 48000;
+diff --git a/source/blood/src/credits.cpp b/source/blood/src/credits.cpp
+index 60c0249..74a5263 100644
+--- a/source/blood/src/credits.cpp
++++ b/source/blood/src/credits.cpp
+@@ -292,6 +292,12 @@ char credPlaySmk(const char *_pzSMK, const char *_pzWAV, int nWav)
+     do
+     {
+         gameHandleEvents();
++#ifdef LIBRETRO
++        // Input is sampled at the frontend rate, which can exceed movie FPS.
++        // Consume short presses even while waiting for the next movie frame.
++        if (KB_KeyPressed(sc_Escape) || (nFrame > nFrameRate && ctrlCheckAllInput()))
++            break;
++#endif
+         if (scale((int)(totalclock-nStartTime), nFrameRate, kTicRate) < nFrame)
+             continue;
+ 
+@@ -307,9 +313,15 @@ char credPlaySmk(const char *_pzSMK, const char *_pzWAV, int nWav)
+ 
+         rotatesprite_fs(160<<16, 100<<16, nScale, 512, kSMKTile, 0, 0, nStat);
+ 
++#ifdef LIBRETRO
++        // Present yields to the frontend and polls fresh controller input on
++        // resumption. Clear the old frame before yielding, not the new input.
++        ctrlClearAllInput();
++#endif
+         videoNextPage();
+-
++#ifndef LIBRETRO
+         ctrlClearAllInput();
++#endif
+         nFrame++;
+         Smacker_GetNextFrame(hSMK);
+     } while(nFrame < nFrames);
+diff --git a/source/build/include/compat.h b/source/build/include/compat.h
+index 484e292..da10b1b 100644
+--- a/source/build/include/compat.h
++++ b/source/build/include/compat.h
+@@ -1,3 +1,4 @@
++// This file has been modified from Ken Silverman's original release
+ // Compatibility declarations for things which might not be present in
+ // certain build environments. It also levels the playing field caused
+ // by different platforms.
+@@ -1033,7 +1034,16 @@ static FORCE_INLINE CONSTEXPR uint64_t B_PASS64(uint64_t const x) { return x; }
+ 
+ // TODO: Determine when, if ever, we should use the bit-shift-and-mask variants
+ // due to alignment issues or performance gains.
+-#if 1
++#if defined(__arm__) || defined(__aarch64__)
++// ZIP records are byte-aligned. Typed dereferences allow ARM LDRD/STRD,
++// which fault on odd addresses even when ordinary unaligned loads work.
++static FORCE_INLINE void B_BUF16(void *buf, uint16_t x) { memcpy(buf, &x, sizeof x); }
++static FORCE_INLINE void B_BUF32(void *buf, uint32_t x) { memcpy(buf, &x, sizeof x); }
++static FORCE_INLINE void B_BUF64(void *buf, uint64_t x) { memcpy(buf, &x, sizeof x); }
++static FORCE_INLINE uint16_t B_UNBUF16(void const *buf) { uint16_t x; memcpy(&x, buf, sizeof x); return x; }
++static FORCE_INLINE uint32_t B_UNBUF32(void const *buf) { uint32_t x; memcpy(&x, buf, sizeof x); return x; }
++static FORCE_INLINE uint64_t B_UNBUF64(void const *buf) { uint64_t x; memcpy(&x, buf, sizeof x); return x; }
++#elif 1
+ static FORCE_INLINE void B_BUF16(void * const buf, uint16_t const x) { *(uint16_t *) buf = x; }
+ static FORCE_INLINE void B_BUF32(void * const buf, uint32_t const x) { *(uint32_t *) buf = x; }
+ static FORCE_INLINE void B_BUF64(void * const buf, uint64_t const x) { *(uint64_t *) buf = x; }
+diff --git a/source/mact/src/control.cpp b/source/mact/src/control.cpp
+index 61144ed..aa62af3 100644
+--- a/source/mact/src/control.cpp
++++ b/source/mact/src/control.cpp
+@@ -19,7 +19,7 @@
+ #include "osd.h"
+ #include "pragmas.h"
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+ #include "android.h"
+ #endif
+ 
+@@ -521,7 +521,7 @@ static void controlPollDevices(ControlInfo *const info)
+     memset(info, 0, sizeof(ControlInfo));
+     handleevents();
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+     CONTROL_Android_PollDevices(info);
+ #endif
+ 
+@@ -631,7 +631,7 @@ void CONTROL_ClearButton(int whichbutton)
+ {
+     if (CONTROL_CheckRange(whichbutton)) return;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+     CONTROL_Android_ClearButton(whichbutton);
+ #endif
+ 
+@@ -697,7 +697,7 @@ static void controlUpdateGameFunctions(void)
+ 
+ void CONTROL_GetInput(ControlInfo *info)
+ {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(LIBRETRO)
+     CONTROL_Android_PollDevices(info);
+ #endif
+     controlPollDevices(info);

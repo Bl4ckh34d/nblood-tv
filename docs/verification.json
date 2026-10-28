@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-29",
+  "target": "Android 11 ARMv7 TV; NDK r27d",
+  "artifact": "blood_libretro_android.so",
+  "bytes": 3444808,
+  "sha256": "3b23d588b43a3af3631207a05b693fd07a9a557f9528096cad8004f857268b23",
+  "build": "passed",
+  "patches": "forward against pristine pinned index and reverse against current source passed",
+  "runtime": {
+    "test": "final-gameplay-smoke-movie-aware",
+    "exit": 0,
+    "evidence": [
+      "After menu: started=1 mode=0 clock=0 level=0",
+      "Mouse: yaw 0 -> 3035136, pitch 0 -> 4591616, aim 1",
+      "PASS: 871 video frames, 573 unique frames, 696800 PCM frames, 1142803 nonzero samples, 0 MIDI bytes, 0 notes, 0 timed bytes",
+      "2026-10-29 01:21:08.386  8.4834s [F61AF470]     osd.cpp:1734 INFO| Game saved",
+      "2026-10-29 01:21:11.718 11.8153s [F61AF470]     osd.cpp:1734 INFO| Game saved"
+    ]
+  },
+  "test_fixture_correction": "The upstream smoke frontend did not skip the optional CD episode movie and failed equally with the old and new core. The published frontend sends Start during startup; the final build then passes gameplay and save/load assertions."
+}

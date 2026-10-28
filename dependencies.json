@@ -1,0 +1,9 @@
+[
+  {
+    "path": "nblood-libretro",
+    "url": "https://github.com/mlcodewerks/nblood-libretro.git",
+    "revision": "5c3bd3fd3ab8fdaf37c38f569b704a122792d481",
+    "patch": "patches/nblood-libretro-expansion.patch",
+    "patch_sha256": "7651a7c01214dcf99c85591353a177118675eca14310b04699ce233c27845f6d"
+  }
+]
